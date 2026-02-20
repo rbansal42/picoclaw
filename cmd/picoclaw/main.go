@@ -115,6 +115,8 @@ func main() {
 		authCmd()
 	case "cron":
 		cronCmd()
+	case "doctor":
+		doctorCmd()
 	case "skills":
 		if len(os.Args) < 3 {
 			skillsHelp()
@@ -186,6 +188,7 @@ func printHelp() {
 	fmt.Println("  cron        Manage scheduled tasks")
 	fmt.Println("  migrate     Migrate from OpenClaw to PicoClaw")
 	fmt.Println("  skills      Manage skills (install, list, remove)")
+	fmt.Println("  doctor      Check for common problems (--fix to auto-repair)")
 	fmt.Println("  version     Show version information")
 }
 
