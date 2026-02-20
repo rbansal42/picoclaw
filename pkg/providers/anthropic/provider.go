@@ -64,13 +64,28 @@ func NewProviderWithTokenSourceAndBaseURL(token string, tokenSource func() (stri
 	return p
 }
 
-func (p *Provider) Chat(
-	ctx context.Context,
-	messages []Message,
-	tools []ToolDefinition,
-	model string,
-	options map[string]any,
-) (*LLMResponse, error) {
+func NewProviderWithOAuthMiddleware(tokenSource func() (string, error), apiBase string) *Provider {
+	baseURL := normalizeBaseURL(apiBase)
+	middlewareOpts := NewOAuthMiddleware(OAuthMiddlewareConfig{
+		TokenSource:     tokenSource,
+		SanitizePrompts: true,
+		RenameTools:     true,
+	})
+
+	clientOpts := []option.RequestOption{
+		option.WithBaseURL(baseURL),
+		option.WithAuthToken("oauth-managed"),
+	}
+	clientOpts = append(clientOpts, middlewareOpts...)
+
+	client := anthropic.NewClient(clientOpts...)
+	return &Provider{
+		client:  &client,
+		baseURL: baseURL,
+	}
+}
+
+func (p *Provider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]interface{}) (*LLMResponse, error) {
 	var opts []option.RequestOption
 	if p.tokenSource != nil {
 		tok, err := p.tokenSource()
