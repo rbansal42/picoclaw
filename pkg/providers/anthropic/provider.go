@@ -146,7 +146,20 @@ func buildParams(
 					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 				}
 				for _, tc := range msg.ToolCalls {
-					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, tc.Arguments, tc.Name))
+					input := tc.Arguments
+					if input == nil {
+						// Recover from nil Arguments (e.g. loaded from older sessions)
+						if tc.Function != nil && tc.Function.Arguments != "" {
+							var parsed map[string]interface{}
+							if err := json.Unmarshal([]byte(tc.Function.Arguments), &parsed); err == nil {
+								input = parsed
+							}
+						}
+						if input == nil {
+							input = map[string]interface{}{}
+						}
+					}
+					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
 				}
 				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(blocks...))
 			} else {

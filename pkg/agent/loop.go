@@ -635,9 +635,10 @@ func (al *AgentLoop) runLLMIteration(
 			}
 
 			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, providers.ToolCall{
-				ID:   tc.ID,
-				Type: "function",
-				Name: tc.Name,
+				ID:        tc.ID,
+				Type:      "function",
+				Name:      tc.Name,
+				Arguments: tc.Arguments,
 				Function: &providers.FunctionCall{
 					Name:             tc.Name,
 					Arguments:        string(argumentsJSON),
