@@ -41,7 +41,10 @@ func (c *cmd) Help(ctx context.Context, message telego.Message) error {
 	msg := `/start - Start the bot
 /help - Show this help message
 /show [model|channel] - Show current configuration
+/show agents - Show registered agents
 /list [models|channels] - List available options
+/list agents - List registered agents
+/switch model to <name> - Switch to a different model
 	`
 	_, err := c.bot.SendMessage(ctx, &telego.SendMessageParams{
 		ChatID: telego.ChatID{ID: message.Chat.ID},
@@ -119,7 +122,7 @@ func (c *cmd) List(ctx context.Context, message telego.Message) error {
 		if provider == "" {
 			provider = "configured default"
 		}
-		response = fmt.Sprintf("Configured Model: %s\nProvider: %s\n\nTo change models, update config.yaml",
+		response = fmt.Sprintf("Configured Model: %s\nProvider: %s\n\nTo change models, update config.json",
 			c.config.Agents.Defaults.Model, provider)
 
 	case "channels":
