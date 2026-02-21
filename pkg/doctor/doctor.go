@@ -294,8 +294,8 @@ func checkSessions(opts Options) Result {
 			for _, p := range problems {
 				r.AddFixable(check, SeverityError,
 					fmt.Sprintf("%s: %s", entry.Name(), p),
-					"remove corrupt session file",
-					makeSessionDeleteFunc(filePath),
+					"repair corrupt session (inject synthetic tool results, drop orphans)",
+					makeSessionRepairFunc(filePath, sess),
 				)
 			}
 		}
@@ -380,9 +380,69 @@ func checkSessionMessages(msgs []providers.Message) []string {
 	return problems
 }
 
-func makeSessionDeleteFunc(path string) func() error {
+// repairSessionMessages fixes orphaned tool_use/tool_result pairs in a message slice.
+func repairSessionMessages(msgs []providers.Message) []providers.Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// Collect all tool_call IDs
+	toolCallIDs := map[string]bool{}
+	for _, m := range msgs {
+		if m.Role == "assistant" {
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" {
+					toolCallIDs[tc.ID] = true
+				}
+			}
+		}
+	}
+
+	// Collect all tool_result IDs
+	toolResultIDs := map[string]bool{}
+	for _, m := range msgs {
+		if m.Role == "tool" && m.ToolCallID != "" {
+			toolResultIDs[m.ToolCallID] = true
+		}
+	}
+
+	// Build repaired slice: drop orphan results, inject missing results
+	repaired := make([]providers.Message, 0, len(msgs))
+	for _, m := range msgs {
+		// Drop orphaned tool_result
+		if m.Role == "tool" && m.ToolCallID != "" && !toolCallIDs[m.ToolCallID] {
+			continue
+		}
+		repaired = append(repaired, m)
+
+		// Inject missing tool_results after assistant+tool_calls
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				if tc.ID == "" {
+					continue
+				}
+				if !toolResultIDs[tc.ID] {
+					repaired = append(repaired, providers.Message{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    "[tool result unavailable - session was repaired by picoclaw doctor]",
+					})
+					toolResultIDs[tc.ID] = true
+				}
+			}
+		}
+	}
+	return repaired
+}
+
+func makeSessionRepairFunc(path string, sess sessionFile) func() error {
 	return func() error {
-		return os.Remove(path)
+		sess.Messages = repairSessionMessages(sess.Messages)
+		data, err := json.MarshalIndent(sess, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling repaired session: %w", err)
+		}
+		return os.WriteFile(path, data, 0o644)
 	}
 }
 
