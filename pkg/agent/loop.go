@@ -1083,6 +1083,7 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
   /help                     Show this help message
   /new                      Start a new conversation
   /status                   Show current session info
+  /doctor                   Diagnose and repair current session
   /show model               Show current model
   /show channel             Show current channel
   /show agents              Show registered agents
@@ -1207,6 +1208,69 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
   Channel: %s
   Messages: %d in current session
   Max iterations: %d`, agent.Model, agent.ID, msg.Channel, len(history), agent.MaxIterations), true
+
+	case "/doctor":
+		// Diagnose and repair the current session in-place
+		route := al.registry.ResolveRoute(routing.RouteInput{
+			Channel:   msg.Channel,
+			AccountID: msg.Metadata["account_id"],
+			Peer:      extractPeer(msg),
+			GuildID:   msg.Metadata["guild_id"],
+			TeamID:    msg.Metadata["team_id"],
+		})
+
+		agent, ok := al.registry.GetAgent(route.AgentID)
+		if !ok {
+			agent = al.registry.GetDefaultAgent()
+		}
+		if agent == nil {
+			return "No agent configured", true
+		}
+
+		sessionKey := route.SessionKey
+		history := agent.Sessions.GetHistory(sessionKey)
+		if len(history) == 0 {
+			return "Session is empty — nothing to repair.", true
+		}
+
+		repaired := repairOrphanedToolPairs(history)
+
+		injected := len(repaired) - len(history)
+		if injected == 0 {
+			// Check if any messages were dropped (orphan tool_results removed)
+			// by comparing lengths — repairOrphanedToolPairs may drop AND inject
+			dropped := 0
+			toolCallIDs := map[string]bool{}
+			for _, m := range history {
+				for _, tc := range m.ToolCalls {
+					if tc.ID != "" {
+						toolCallIDs[tc.ID] = true
+					}
+				}
+			}
+			for _, m := range history {
+				if m.Role == "tool" && m.ToolCallID != "" && !toolCallIDs[m.ToolCallID] {
+					dropped++
+				}
+			}
+			if dropped == 0 {
+				return fmt.Sprintf("Session OK — %d messages, no issues found.", len(history)), true
+			}
+		}
+
+		agent.Sessions.SetHistory(sessionKey, repaired)
+		agent.Sessions.Save(sessionKey)
+
+		var parts []string
+		if len(repaired) > len(history) {
+			parts = append(parts, fmt.Sprintf("injected %d synthetic tool result(s)", len(repaired)-len(history)))
+		}
+		if len(repaired) < len(history) {
+			parts = append(parts, fmt.Sprintf("dropped %d orphaned tool result(s)", len(history)-len(repaired)))
+		}
+
+		return fmt.Sprintf("Session repaired: %s. Messages: %d -> %d.",
+			strings.Join(parts, ", "), len(history), len(repaired)), true
 
 	case "/switch":
 		if len(args) < 3 || args[1] != "to" {
