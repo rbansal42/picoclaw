@@ -95,7 +95,7 @@ func copyDirectory(src, dst string) error {
 func main() {
 	if len(os.Args) < 2 {
 		printHelp()
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	command := os.Args[1]
@@ -124,6 +124,11 @@ func main() {
 		}
 
 		subcommand := os.Args[2]
+
+		if subcommand == "--help" || subcommand == "-h" {
+			skillsHelp()
+			return
+		}
 
 		cfg, err := loadConfig()
 		if err != nil {
@@ -168,6 +173,8 @@ func main() {
 		}
 	case "version", "--version", "-v":
 		printVersion()
+	case "--help", "-h":
+		printHelp()
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		printHelp()

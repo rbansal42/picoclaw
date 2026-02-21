@@ -26,6 +26,8 @@ func authCmd() {
 	}
 
 	switch os.Args[2] {
+	case "--help", "-h":
+		authHelp()
 	case "login":
 		authLoginCmd()
 	case "logout":

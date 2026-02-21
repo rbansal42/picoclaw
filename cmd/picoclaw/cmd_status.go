@@ -11,6 +11,19 @@ import (
 )
 
 func statusCmd() {
+	for _, arg := range os.Args[2:] {
+		switch arg {
+		case "--help", "-h":
+			fmt.Println("Show picoclaw status and configuration")
+			fmt.Println()
+			fmt.Println("Usage: picoclaw status")
+			fmt.Println()
+			fmt.Println("Displays version, config path, workspace path, configured")
+			fmt.Println("providers, and authentication status.")
+			return
+		}
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)

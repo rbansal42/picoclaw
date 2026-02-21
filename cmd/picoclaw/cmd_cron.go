@@ -18,6 +18,11 @@ func cronCmd() {
 		return
 	}
 
+	if os.Args[2] == "--help" || os.Args[2] == "-h" {
+		cronHelp()
+		return
+	}
+
 	subcommand := os.Args[2]
 
 	// Load config to get workspace path

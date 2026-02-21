@@ -18,6 +18,19 @@ import (
 var embeddedFiles embed.FS
 
 func onboard() {
+	for _, arg := range os.Args[2:] {
+		switch arg {
+		case "--help", "-h":
+			fmt.Println("Initialize picoclaw configuration and workspace")
+			fmt.Println()
+			fmt.Println("Usage: picoclaw onboard")
+			fmt.Println()
+			fmt.Println("Creates the default config file and workspace directory.")
+			fmt.Println("If a config already exists, prompts before overwriting.")
+			return
+		}
+	}
+
 	configPath := getConfigPath()
 
 	if _, err := os.Stat(configPath); err == nil {

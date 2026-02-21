@@ -29,6 +29,18 @@ func agentCmd() {
 	args := os.Args[2:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--help", "-h":
+			fmt.Println("Interact with the agent directly")
+			fmt.Println()
+			fmt.Println("Usage: picoclaw agent [options]")
+			fmt.Println()
+			fmt.Println("Options:")
+			fmt.Println("  -m, --message <text>   Send a single message (non-interactive)")
+			fmt.Println("  -s, --session <key>    Session key (default: cli:default)")
+			fmt.Println("  --model <model>        Override the default model")
+			fmt.Println("  -d, --debug            Enable debug logging")
+			fmt.Println("  -h, --help             Show this help message")
+			return
 		case "--debug", "-d":
 			logger.SetLevel(logger.DEBUG)
 			fmt.Println("🔍 Debug mode enabled")
