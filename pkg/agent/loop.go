@@ -722,7 +722,7 @@ func (al *AgentLoop) runLLMIteration(
 				Data: ToolCallStartedData{
 					ID:   tc.ID,
 					Name: tc.Name,
-					Args: tc.Arguments,
+					Args: string(argsJSON),
 				},
 			})
 

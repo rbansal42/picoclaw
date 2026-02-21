@@ -29,7 +29,7 @@ type AgentEvent struct {
 type ToolCallStartedData struct {
 	ID   string
 	Name string
-	Args map[string]any
+	Args string
 }
 
 // ToolCallCompletedData carries information about a completed tool call

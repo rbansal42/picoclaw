@@ -75,7 +75,7 @@ func TestMockEventListener_ReceivesEvents(t *testing.T) {
 				Data: ToolCallStartedData{
 					ID:   "call_123",
 					Name: "exec",
-					Args: map[string]any{"command": "ls"},
+					Args: `{"command":"ls"}`,
 				},
 			},
 			checkData: func(t *testing.T, data any) {
@@ -89,8 +89,8 @@ func TestMockEventListener_ReceivesEvents(t *testing.T) {
 				if d.Name != "exec" {
 					t.Errorf("expected Name 'exec', got %q", d.Name)
 				}
-				if d.Args["command"] != "ls" {
-					t.Errorf("expected Args[command]='ls', got %v", d.Args["command"])
+				if d.Args != `{"command":"ls"}` {
+					t.Errorf("expected Args `{\"command\":\"ls\"}`, got %q", d.Args)
 				}
 			},
 		},
@@ -205,12 +205,38 @@ func TestMockEventListener_ReceivesEvents(t *testing.T) {
 	}
 }
 
-func TestAgentEventListener_NilSafe(t *testing.T) {
-	// Verify that fireEvent with nil listener doesn't panic
-	// This is tested indirectly through the AgentLoop, but we can
-	// verify the interface contract here
-	var listener AgentEventListener
-	if listener != nil {
-		t.Error("expected nil listener")
+func TestFireEvent_WithListener(t *testing.T) {
+	// Create a minimal AgentLoop with just the eventListener field set
+	listener := &mockEventListener{}
+	al := &AgentLoop{eventListener: listener}
+
+	al.fireEvent(AgentEvent{Type: EventThinkingStarted})
+	al.fireEvent(AgentEvent{
+		Type: EventToolCallStarted,
+		Data: ToolCallStartedData{ID: "1", Name: "exec", Args: `{"command":"ls"}`},
+	})
+
+	events := listener.getEvents()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
 	}
+	if events[0].Type != EventThinkingStarted {
+		t.Errorf("event 0: expected EventThinkingStarted, got %d", events[0].Type)
+	}
+	if events[1].Type != EventToolCallStarted {
+		t.Errorf("event 1: expected EventToolCallStarted, got %d", events[1].Type)
+	}
+	d, ok := events[1].Data.(ToolCallStartedData)
+	if !ok {
+		t.Fatalf("event 1: expected ToolCallStartedData, got %T", events[1].Data)
+	}
+	if d.ID != "1" || d.Name != "exec" || d.Args != `{"command":"ls"}` {
+		t.Errorf("event 1: unexpected data: %+v", d)
+	}
+}
+
+func TestFireEvent_WithoutListener(t *testing.T) {
+	al := &AgentLoop{} // No listener set
+	// Should not panic
+	al.fireEvent(AgentEvent{Type: EventThinkingStarted})
 }
