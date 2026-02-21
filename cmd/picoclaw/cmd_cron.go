@@ -72,6 +72,9 @@ func cronHelp() {
 	fmt.Println("  -d, --deliver     Deliver response to channel")
 	fmt.Println("  --to             Recipient for delivery")
 	fmt.Println("  --channel        Channel for delivery")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  -h, --help       Show this help")
 }
 
 func cronListCmd(storePath string) {

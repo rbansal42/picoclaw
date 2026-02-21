@@ -43,7 +43,11 @@ func authCmd() {
 }
 
 func authHelp() {
-	fmt.Println("\nAuth commands:")
+	fmt.Println("Usage: picoclaw auth <command>")
+	fmt.Println()
+	fmt.Println("Manage authentication credentials.")
+	fmt.Println()
+	fmt.Println("Commands:")
 	fmt.Println("  login       Login via OAuth or paste token")
 	fmt.Println("  logout      Remove stored credentials")
 	fmt.Println("  status      Show current auth status")
@@ -66,6 +70,9 @@ func authHelp() {
 	fmt.Println("  picoclaw auth models")
 	fmt.Println("  picoclaw auth logout --provider openai")
 	fmt.Println("  picoclaw auth status")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  -h, --help    Show this help")
 }
 
 func authLoginCmd() {

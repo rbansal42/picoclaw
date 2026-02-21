@@ -59,6 +59,10 @@ func agentCmd() {
 				modelOverride = args[i+1]
 				i++
 			}
+		default:
+			fmt.Printf("Unknown flag: %s\n", args[i])
+			fmt.Println("Run 'picoclaw agent --help' for usage.")
+			os.Exit(1)
 		}
 	}
 

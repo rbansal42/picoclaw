@@ -44,6 +44,10 @@ func gatewayCmd() {
 		case "--debug", "-d":
 			logger.SetLevel(logger.DEBUG)
 			fmt.Println("🔍 Debug mode enabled")
+		default:
+			fmt.Printf("Unknown flag: %s\n", arg)
+			fmt.Println("Run 'picoclaw gateway --help' for usage.")
+			os.Exit(1)
 		}
 	}
 
