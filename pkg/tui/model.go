@@ -76,14 +76,16 @@ type Model struct {
 // NewModel creates a new TUI model wired to the given agent loop
 func NewModel(agentLoop *agent.AgentLoop, sessionKey, modelName string) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Type a message... (Enter to send, Alt+Enter for newline)"
+	ta.Placeholder = "Type a message... (Enter to send, Shift+Enter for newline)"
 	ta.Prompt = "│ "
 	ta.CharLimit = 0 // No limit
 	ta.SetHeight(textareaHeight)
 	ta.ShowLineNumbers = false
 
-	// Enter sends, Alt+Enter inserts newline
-	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("alt+enter"))
+	// Enter sends, Shift+Enter inserts newline
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("shift+enter"))
+
+	ta.Focus()
 
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
