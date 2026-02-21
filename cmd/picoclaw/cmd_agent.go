@@ -4,21 +4,17 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/chzyer/readline"
-
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/tui"
 	"github.com/sipeed/picoclaw/pkg/update"
 )
 
@@ -141,98 +137,15 @@ func agentCmd() {
 		printUpdateHint()
 	} else {
 		printUpdateHint()
-		fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", logo)
-		interactiveMode(agentLoop, sessionKey)
-	}
-}
-
-func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
-	prompt := fmt.Sprintf("%s You: ", logo)
-
-	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          prompt,
-		HistoryFile:     filepath.Join(os.TempDir(), ".picoclaw_history"),
-		HistoryLimit:    100,
-		InterruptPrompt: "^C",
-		EOFPrompt:       "exit",
-	})
-	if err != nil {
-		fmt.Printf("Error initializing readline: %v\n", err)
-		fmt.Println("Falling back to simple input mode...")
-		simpleInteractiveMode(agentLoop, sessionKey)
-		return
-	}
-	defer rl.Close()
-
-	for {
-		line, err := rl.Readline()
-		if err != nil {
-			if err == readline.ErrInterrupt || err == io.EOF {
-				fmt.Println("\nGoodbye!")
-				return
-			}
-			fmt.Printf("Error reading input: %v\n", err)
-			continue
+		modelName := cfg.Agents.Defaults.Model
+		p := tea.NewProgram(
+			tui.NewModel(agentLoop, sessionKey, modelName),
+			tea.WithAltScreen(),
+			tea.WithMouseCellMotion(),
+		)
+		if _, err := p.Run(); err != nil {
+			fmt.Printf("Error running TUI: %v\n", err)
+			os.Exit(1)
 		}
-
-		input := strings.TrimSpace(line)
-		if input == "" {
-			continue
-		}
-
-		if input == "exit" || input == "quit" {
-			fmt.Println("Goodbye!")
-			return
-		}
-
-		ctx := context.Background()
-		spin := newSpinner("Thinking...")
-		spin.Start()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
-		spin.Stop()
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-
-		fmt.Printf("\n%s %s\n\n", logo, response)
-	}
-}
-
-func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Print(fmt.Sprintf("%s You: ", logo))
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				fmt.Println("\nGoodbye!")
-				return
-			}
-			fmt.Printf("Error reading input: %v\n", err)
-			continue
-		}
-
-		input := strings.TrimSpace(line)
-		if input == "" {
-			continue
-		}
-
-		if input == "exit" || input == "quit" {
-			fmt.Println("Goodbye!")
-			return
-		}
-
-		ctx := context.Background()
-		spin := newSpinner("Thinking...")
-		spin.Start()
-		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
-		spin.Stop()
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			continue
-		}
-
-		fmt.Printf("\n%s %s\n\n", logo, response)
 	}
 }
