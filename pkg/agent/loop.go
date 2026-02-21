@@ -166,7 +166,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 			response, err := al.processMessage(ctx, msg)
 			if err != nil {
-				response = fmt.Sprintf("Error processing message: %v", err)
+				logger.ErrorCF("agent", "error processing message", map[string]interface{}{
+					"channel": msg.Channel,
+					"chat_id": msg.ChatID,
+					"error":   err.Error(),
+				})
+				response = friendlyError(err)
 			}
 
 			if response != "" {
@@ -571,7 +576,7 @@ func (al *AgentLoop) runLLMIteration(
 					al.bus.PublishOutbound(bus.OutboundMessage{
 						Channel: opts.Channel,
 						ChatID:  opts.ChatID,
-						Content: "Context window exceeded. Compressing history and retrying...",
+						Content: "Context window exceeded. Compressing conversation history and retrying...",
 					})
 				}
 
@@ -778,7 +783,7 @@ func (al *AgentLoop) maybeSummarize(agent *AgentInstance, sessionKey, channel, c
 					al.bus.PublishOutbound(bus.OutboundMessage{
 						Channel: channel,
 						ChatID:  chatID,
-						Content: "Memory threshold reached. Optimizing conversation history...",
+						Content: "Conversation getting long — summarizing earlier messages to free up space...",
 					})
 				}
 				al.summarizeSession(agent, sessionKey)
@@ -1063,6 +1068,18 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 	args := parts[1:]
 
 	switch cmd {
+	case "/help":
+		return `Available commands:
+  /help                     Show this help message
+  /show model               Show current model
+  /show channel             Show current channel
+  /show agents              Show registered agents
+  /list models              List available models
+  /list channels            List enabled channels
+  /list agents              List registered agents
+  /switch model to <name>   Switch to a different model
+  /switch channel to <name> Switch target channel`, true
+
 	case "/show":
 		if len(args) < 1 {
 			return "Usage: /show [model|channel|agents]", true
@@ -1089,7 +1106,23 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		}
 		switch args[0] {
 		case "models":
-			return "Available models: configured in config.json per agent", true
+			var lines []string
+			agentIDs := al.registry.ListAgentIDs()
+			for _, id := range agentIDs {
+				agent, ok := al.registry.GetAgent(id)
+				if !ok {
+					continue
+				}
+				entry := fmt.Sprintf("  %s: %s", id, agent.Model)
+				if len(agent.Fallbacks) > 0 {
+					entry += fmt.Sprintf(" (fallbacks: %s)", strings.Join(agent.Fallbacks, ", "))
+				}
+				lines = append(lines, entry)
+			}
+			if len(lines) == 0 {
+				return "No models configured", true
+			}
+			return fmt.Sprintf("Configured models:\n%s", strings.Join(lines, "\n")), true
 		case "channels":
 			if al.channelManager == nil {
 				return "Channel manager not initialized", true
