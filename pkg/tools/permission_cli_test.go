@@ -25,7 +25,7 @@ func TestCLIPermissionFunc(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := strings.NewReader(tt.input)
 			var output bytes.Buffer
-			fn := NewCLIPermissionFunc(reader, &output)
+			fn := NewCLIPermissionFunc(reader, &output, nil, nil)
 
 			got, err := fn(context.Background(), "/Volumes/Code/project")
 			if err != nil {

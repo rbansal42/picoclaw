@@ -98,8 +98,27 @@ func agentCmd() {
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 
-	// Set up CLI permission prompt for workspace access
-	cliPermFn := tools.NewCLIPermissionFunc(os.Stdin, os.Stdout)
+	// Set up CLI permission prompt for workspace access.
+	// The onBefore/onAfter hooks stop the active spinner and temporarily exit
+	// readline's raw mode so the prompt is visible and keystrokes are echoed.
+	var activeSpinner *spinner
+	var activeRL *readline.Instance
+
+	onBefore := func() {
+		if activeSpinner != nil {
+			activeSpinner.Stop()
+		}
+		if activeRL != nil {
+			_ = activeRL.Terminal.ExitRawMode()
+		}
+	}
+	onAfter := func() {
+		if activeRL != nil {
+			_ = activeRL.Terminal.EnterRawMode()
+		}
+	}
+
+	cliPermFn := tools.NewCLIPermissionFunc(os.Stdin, os.Stdout, onBefore, onAfter)
 	agentLoop.SetPermissionFuncFactory(func(channel, chatID string) tools.PermissionFunc {
 		if channel == "cli" {
 			return cliPermFn
@@ -142,11 +161,11 @@ func agentCmd() {
 	} else {
 		printUpdateHint()
 		fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", logo)
-		interactiveMode(agentLoop, sessionKey)
+		interactiveMode(agentLoop, sessionKey, &activeSpinner, &activeRL)
 	}
 }
 
-func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
+func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string, activeSpinner **spinner, activeRL **readline.Instance) {
 	prompt := fmt.Sprintf("%s You: ", logo)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -163,6 +182,9 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 		return
 	}
 	defer rl.Close()
+
+	// Expose the readline instance so the permission prompt can exit/re-enter raw mode.
+	*activeRL = rl
 
 	for {
 		line, err := rl.Readline()
@@ -187,9 +209,11 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 
 		ctx := context.Background()
 		spin := newSpinner("Thinking...")
+		*activeSpinner = spin
 		spin.Start()
 		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
 		spin.Stop()
+		*activeSpinner = nil
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
