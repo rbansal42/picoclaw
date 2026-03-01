@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/chzyer/readline"
 
@@ -16,7 +17,33 @@ import (
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/tools"
 )
+
+// spinnerGuard manages a spinner that can be stopped and restarted by the
+// permission prompt. It is safe for concurrent use.
+type spinnerGuard struct {
+	mu      sync.Mutex
+	spinner *Spinner
+	running bool
+}
+
+func (sg *spinnerGuard) start() {
+	sg.mu.Lock()
+	defer sg.mu.Unlock()
+	sg.spinner = NewSpinner("Thinking...")
+	sg.spinner.Start()
+	sg.running = true
+}
+
+func (sg *spinnerGuard) stop() {
+	sg.mu.Lock()
+	defer sg.mu.Unlock()
+	if sg.running {
+		sg.spinner.Stop()
+		sg.running = false
+	}
+}
 
 func agentCmd(message, sessionKey, model string, debug bool) error {
 	if sessionKey == "" {
@@ -51,6 +78,21 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	defer msgBus.Close()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 
+	// Spinner guard used by both the interactive loop and the permission
+	// prompt callbacks. In non-interactive mode the spinner is still created
+	// around the single ProcessDirect call so the user gets visual feedback.
+	sg := &spinnerGuard{}
+
+	// Wire the permission system so tools that need directory access prompt
+	// the user. The onBefore/onAfter callbacks pause and resume the spinner
+	// to keep the terminal clean for the interactive prompt.
+	agentLoop.SetPermissionFuncFactory(func(channel, chatID string) tools.PermissionFunc {
+		return tools.NewCLIPermissionFunc(os.Stdin, os.Stderr,
+			func() { sg.stop() },
+			func() { sg.start() },
+		)
+	})
+
 	// Print agent startup info (only for interactive mode)
 	startupInfo := agentLoop.GetStartupInfo()
 	logger.InfoCF("agent", "Agent initialized",
@@ -62,7 +104,9 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 
 	if message != "" {
 		ctx := context.Background()
+		sg.start()
 		response, err := agentLoop.ProcessDirect(ctx, message, sessionKey)
+		sg.stop()
 		if err != nil {
 			return fmt.Errorf("error processing message: %w", err)
 		}
@@ -71,12 +115,12 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 	}
 
 	fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", internal.Logo)
-	interactiveMode(agentLoop, sessionKey)
+	interactiveMode(agentLoop, sessionKey, sg)
 
 	return nil
 }
 
-func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
+func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string, sg *spinnerGuard) {
 	prompt := fmt.Sprintf("%s You: ", internal.Logo)
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -89,7 +133,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	if err != nil {
 		fmt.Printf("Error initializing readline: %v\n", err)
 		fmt.Println("Falling back to simple input mode...")
-		simpleInteractiveMode(agentLoop, sessionKey)
+		simpleInteractiveMode(agentLoop, sessionKey, sg)
 		return
 	}
 	defer rl.Close()
@@ -116,7 +160,9 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 		}
 
 		ctx := context.Background()
+		sg.start()
 		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
+		sg.stop()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
@@ -126,7 +172,7 @@ func interactiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 	}
 }
 
-func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
+func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string, sg *spinnerGuard) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print(fmt.Sprintf("%s You: ", internal.Logo))
@@ -151,7 +197,9 @@ func simpleInteractiveMode(agentLoop *agent.AgentLoop, sessionKey string) {
 		}
 
 		ctx := context.Background()
+		sg.start()
 		response, err := agentLoop.ProcessDirect(ctx, input, sessionKey)
+		sg.stop()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue
