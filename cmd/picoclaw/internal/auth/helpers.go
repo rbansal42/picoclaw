@@ -22,7 +22,7 @@ func authLoginCmd(provider string, useDeviceCode bool) error {
 	case "openai":
 		return authLoginOpenAI(useDeviceCode)
 	case "anthropic":
-		return authLoginPasteToken(provider)
+		return authLoginAnthropic()
 	case "google-antigravity", "antigravity":
 		return authLoginGoogleAntigravity()
 	default:
@@ -189,6 +189,80 @@ func fetchGoogleUserEmail(accessToken string) (string, error) {
 		return "", err
 	}
 	return userInfo.Email, nil
+}
+
+func authLoginAnthropic() error {
+	fmt.Println("\nHow would you like to authenticate with Anthropic?")
+	fmt.Println("  1. Claude Max/Pro subscription (browser OAuth — free inference)")
+	fmt.Println("  2. API Console (browser OAuth — creates API key)")
+	fmt.Println("  3. Paste API key manually")
+	fmt.Print("\nChoice [1-3]: ")
+
+	var choice string
+	fmt.Scanln(&choice)
+	choice = strings.TrimSpace(choice)
+
+	switch choice {
+	case "1":
+		return authLoginAnthropicOAuth(auth.AnthropicOAuthMax)
+	case "2":
+		return authLoginAnthropicOAuth(auth.AnthropicOAuthConsole)
+	case "3":
+		return authLoginPasteToken("anthropic")
+	default:
+		return fmt.Errorf("invalid choice %q, expected 1, 2, or 3", choice)
+	}
+}
+
+func authLoginAnthropicOAuth(mode auth.AnthropicOAuthMode) error {
+	cred, err := auth.LoginAnthropicOAuth(mode)
+	if err != nil {
+		return fmt.Errorf("login failed: %w", err)
+	}
+
+	if err = auth.SetCredential("anthropic", cred); err != nil {
+		return fmt.Errorf("failed to save credentials: %w", err)
+	}
+
+	appCfg, err := internal.LoadConfig()
+	if err == nil {
+		appCfg.Providers.Anthropic.AuthMethod = "oauth"
+
+		// Update or add anthropic in ModelList
+		found := false
+		for i := range appCfg.ModelList {
+			if isAnthropicModel(appCfg.ModelList[i].Model) {
+				appCfg.ModelList[i].AuthMethod = "oauth"
+				found = true
+				break
+			}
+		}
+		if !found {
+			appCfg.ModelList = append(appCfg.ModelList, config.ModelConfig{
+				ModelName:  "claude-sonnet-4.6",
+				Model:      "anthropic/claude-sonnet-4.6",
+				AuthMethod: "oauth",
+			})
+		}
+
+		// Update default model
+		appCfg.Agents.Defaults.ModelName = "claude-sonnet-4.6"
+
+		if err := config.SaveConfig(internal.GetConfigPath(), appCfg); err != nil {
+			return fmt.Errorf("could not update config: %w", err)
+		}
+	}
+
+	fmt.Println("\nAnthropic OAuth login successful!")
+	if cred.Email != "" {
+		fmt.Printf("Account: %s\n", cred.Email)
+	}
+	if cred.SubscriptionType != "" {
+		fmt.Printf("Plan: %s\n", cred.SubscriptionType)
+	}
+	fmt.Println("Default model set to: claude-sonnet-4.6")
+
+	return nil
 }
 
 func authLoginPasteToken(provider string) error {
