@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -485,4 +486,222 @@ func TestRootRW_Write(t *testing.T) {
 	content, err = io.ReadAll(f2)
 	assert.NoError(t, err)
 	assert.Equal(t, newData, content)
+}
+
+// --- Permission (PermissibleTool) tests for filesystem tools ---
+
+// Compile-time checks that file tools implement PermissibleTool.
+var (
+	_ PermissibleTool = (*ReadFileTool)(nil)
+	_ PermissibleTool = (*WriteFileTool)(nil)
+	_ PermissibleTool = (*ListDirTool)(nil)
+)
+
+func TestReadFileTool_Permission_DeniedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	os.WriteFile(outsideFile, []byte("secret"), 0o644)
+
+	tool := NewReadFileTool(workspace, false) // unrestricted fs, but permission check should kick in
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, nil // deny
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+
+	assert.True(t, result.IsError, "Expected permission denied for path outside workspace")
+	assert.Contains(t, result.ForLLM, "permission denied",
+		"Expected 'permission denied' message, got: %s", result.ForLLM)
+}
+
+func TestReadFileTool_Permission_ApprovedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "readable.txt")
+	os.WriteFile(outsideFile, []byte("allowed content"), 0o644)
+
+	tool := NewReadFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return true, nil // approve
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+
+	assert.False(t, result.IsError, "Expected success after permission approval, got: %s", result.ForLLM)
+	assert.Contains(t, result.ForLLM, "allowed content")
+}
+
+func TestReadFileTool_Permission_PreApprovedInStore(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "cached.txt")
+	os.WriteFile(outsideFile, []byte("cached content"), 0o644)
+
+	store := NewPermissionStore()
+	store.Approve(outsideDir) // pre-approve
+
+	permFnCalled := false
+	tool := NewReadFileTool(workspace, false)
+	tool.SetPermission(store, func(ctx context.Context, path string) (bool, error) {
+		permFnCalled = true
+		return false, nil // would deny, but store should bypass this
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+
+	assert.False(t, result.IsError, "Expected success with pre-approved dir, got: %s", result.ForLLM)
+	assert.False(t, permFnCalled, "PermissionFunc should not be called when dir is pre-approved")
+}
+
+func TestReadFileTool_Permission_InsideWorkspaceNoCheck(t *testing.T) {
+	workspace := t.TempDir()
+	insideFile := filepath.Join(workspace, "inside.txt")
+	os.WriteFile(insideFile, []byte("workspace content"), 0o644)
+
+	permFnCalled := false
+	tool := NewReadFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		permFnCalled = true
+		return false, nil // would deny
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": insideFile})
+
+	assert.False(t, result.IsError, "Expected success for path inside workspace, got: %s", result.ForLLM)
+	assert.False(t, permFnCalled, "PermissionFunc should not be called for paths inside workspace")
+}
+
+func TestReadFileTool_Permission_ErrorFromPermFunc(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "error.txt")
+	os.WriteFile(outsideFile, []byte("content"), 0o644)
+
+	tool := NewReadFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, fmt.Errorf("connection lost")
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.ForLLM, "connection lost")
+}
+
+func TestReadFileTool_Permission_ApprovalStored(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "store_test.txt")
+	os.WriteFile(outsideFile, []byte("test"), 0o644)
+
+	store := NewPermissionStore()
+	callCount := 0
+	tool := NewReadFileTool(workspace, false)
+	tool.SetPermission(store, func(ctx context.Context, path string) (bool, error) {
+		callCount++
+		return true, nil
+	})
+
+	// First call should invoke permFn
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+	assert.False(t, result.IsError)
+	assert.Equal(t, 1, callCount, "PermissionFunc should be called once on first access")
+
+	// Second call should use store, not call permFn again
+	result = tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+	assert.False(t, result.IsError)
+	assert.Equal(t, 1, callCount, "PermissionFunc should not be called again for approved dir")
+}
+
+func TestWriteFileTool_Permission_DeniedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "write_denied.txt")
+
+	tool := NewWriteFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":    outsideFile,
+		"content": "should not write",
+	})
+
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.ForLLM, "permission denied")
+
+	// File should not exist
+	_, err := os.Stat(outsideFile)
+	assert.True(t, os.IsNotExist(err), "File should not have been created")
+}
+
+func TestWriteFileTool_Permission_ApprovedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "write_allowed.txt")
+
+	tool := NewWriteFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return true, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":    outsideFile,
+		"content": "allowed write",
+	})
+
+	assert.False(t, result.IsError, "Expected success after approval, got: %s", result.ForLLM)
+
+	data, err := os.ReadFile(outsideFile)
+	assert.NoError(t, err)
+	assert.Equal(t, "allowed write", string(data))
+}
+
+func TestListDirTool_Permission_DeniedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+
+	tool := NewListDirTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideDir})
+
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.ForLLM, "permission denied")
+}
+
+func TestListDirTool_Permission_ApprovedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	os.WriteFile(filepath.Join(outsideDir, "file.txt"), []byte("x"), 0o644)
+
+	tool := NewListDirTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return true, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideDir})
+
+	assert.False(t, result.IsError, "Expected success after approval, got: %s", result.ForLLM)
+	assert.Contains(t, result.ForLLM, "file.txt")
+}
+
+func TestReadFileTool_Permission_NoPermFn_AllowsAccess(t *testing.T) {
+	// When no permFn is set (nil), hostFs should work as before — no permission check
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "no_perm.txt")
+	os.WriteFile(outsideFile, []byte("no permission func"), 0o644)
+
+	tool := NewReadFileTool(workspace, false)
+	// No SetPermission call — permFn is nil
+
+	result := tool.Execute(context.Background(), map[string]any{"path": outsideFile})
+
+	assert.False(t, result.IsError, "Expected success when no permFn set, got: %s", result.ForLLM)
+	assert.Contains(t, result.ForLLM, "no permission func")
 }

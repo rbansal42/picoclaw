@@ -11,7 +11,10 @@ import (
 // EditFileTool edits a file by replacing old_text with new_text.
 // The old_text must exist exactly in the file.
 type EditFileTool struct {
-	fs fileSystem
+	fs        fileSystem
+	workspace string
+	permStore *PermissionStore
+	permFn    PermissionFunc
 }
 
 // NewEditFileTool creates a new EditFileTool with optional directory restriction.
@@ -22,7 +25,12 @@ func NewEditFileTool(workspace string, restrict bool) *EditFileTool {
 	} else {
 		fs = &hostFs{}
 	}
-	return &EditFileTool{fs: fs}
+	return &EditFileTool{fs: fs, workspace: workspace}
+}
+
+func (t *EditFileTool) SetPermission(store *PermissionStore, fn PermissionFunc) {
+	t.permStore = store
+	t.permFn = fn
 }
 
 func (t *EditFileTool) Name() string {
@@ -70,6 +78,10 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return ErrorResult("new_text is required")
 	}
 
+	if err := checkFilePermission(ctx, path, t.workspace, t.permStore, t.permFn); err != nil {
+		return ErrorResult(err.Error())
+	}
+
 	if err := editFile(t.fs, path, oldText, newText); err != nil {
 		return ErrorResult(err.Error())
 	}
@@ -77,7 +89,10 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 }
 
 type AppendFileTool struct {
-	fs fileSystem
+	fs        fileSystem
+	workspace string
+	permStore *PermissionStore
+	permFn    PermissionFunc
 }
 
 func NewAppendFileTool(workspace string, restrict bool) *AppendFileTool {
@@ -87,7 +102,12 @@ func NewAppendFileTool(workspace string, restrict bool) *AppendFileTool {
 	} else {
 		fs = &hostFs{}
 	}
-	return &AppendFileTool{fs: fs}
+	return &AppendFileTool{fs: fs, workspace: workspace}
+}
+
+func (t *AppendFileTool) SetPermission(store *PermissionStore, fn PermissionFunc) {
+	t.permStore = store
+	t.permFn = fn
 }
 
 func (t *AppendFileTool) Name() string {
@@ -124,6 +144,10 @@ func (t *AppendFileTool) Execute(ctx context.Context, args map[string]any) *Tool
 	content, ok := args["content"].(string)
 	if !ok {
 		return ErrorResult("content is required")
+	}
+
+	if err := checkFilePermission(ctx, path, t.workspace, t.permStore, t.permFn); err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	if err := appendFile(t.fs, path, content); err != nil {

@@ -83,8 +83,62 @@ func isWithinWorkspace(candidate, workspace string) bool {
 	return err == nil && filepath.IsLocal(rel)
 }
 
+// checkFilePermission checks whether the given path requires permission to access.
+// It returns nil if access is allowed, or an error if denied or if the permission check fails.
+// When permFn is nil, no check is performed (backward compatible).
+// When the path is inside the workspace, no check is performed.
+func checkFilePermission(ctx context.Context, path, workspace string, permStore *PermissionStore, permFn PermissionFunc) error {
+	if permFn == nil {
+		return nil
+	}
+
+	if workspace == "" {
+		return nil
+	}
+
+	absWorkspace, err := filepath.Abs(workspace)
+	if err != nil {
+		return nil
+	}
+
+	var absPath string
+	if filepath.IsAbs(path) {
+		absPath = filepath.Clean(path)
+	} else {
+		absPath = filepath.Clean(filepath.Join(absWorkspace, path))
+	}
+
+	if isWithinWorkspace(absPath, absWorkspace) {
+		return nil
+	}
+
+	// Path is outside workspace — check permission
+	dir := filepath.Dir(absPath)
+
+	if permStore != nil && permStore.IsApproved(dir) {
+		return nil
+	}
+
+	approved, err := permFn(ctx, dir)
+	if err != nil {
+		return fmt.Errorf("permission check failed: %v", err)
+	}
+	if !approved {
+		return fmt.Errorf("permission denied for %s", absPath)
+	}
+
+	if permStore != nil {
+		permStore.Approve(dir)
+	}
+
+	return nil
+}
+
 type ReadFileTool struct {
-	fs fileSystem
+	fs        fileSystem
+	workspace string
+	permStore *PermissionStore
+	permFn    PermissionFunc
 }
 
 func NewReadFileTool(workspace string, restrict bool) *ReadFileTool {
@@ -94,7 +148,12 @@ func NewReadFileTool(workspace string, restrict bool) *ReadFileTool {
 	} else {
 		fs = &hostFs{}
 	}
-	return &ReadFileTool{fs: fs}
+	return &ReadFileTool{fs: fs, workspace: workspace}
+}
+
+func (t *ReadFileTool) SetPermission(store *PermissionStore, fn PermissionFunc) {
+	t.permStore = store
+	t.permFn = fn
 }
 
 func (t *ReadFileTool) Name() string {
@@ -124,6 +183,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return ErrorResult("path is required")
 	}
 
+	if err := checkFilePermission(ctx, path, t.workspace, t.permStore, t.permFn); err != nil {
+		return ErrorResult(err.Error())
+	}
+
 	content, err := t.fs.ReadFile(path)
 	if err != nil {
 		return ErrorResult(err.Error())
@@ -132,7 +195,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 }
 
 type WriteFileTool struct {
-	fs fileSystem
+	fs        fileSystem
+	workspace string
+	permStore *PermissionStore
+	permFn    PermissionFunc
 }
 
 func NewWriteFileTool(workspace string, restrict bool) *WriteFileTool {
@@ -142,7 +208,12 @@ func NewWriteFileTool(workspace string, restrict bool) *WriteFileTool {
 	} else {
 		fs = &hostFs{}
 	}
-	return &WriteFileTool{fs: fs}
+	return &WriteFileTool{fs: fs, workspace: workspace}
+}
+
+func (t *WriteFileTool) SetPermission(store *PermissionStore, fn PermissionFunc) {
+	t.permStore = store
+	t.permFn = fn
 }
 
 func (t *WriteFileTool) Name() string {
@@ -181,6 +252,10 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) *ToolR
 		return ErrorResult("content is required")
 	}
 
+	if err := checkFilePermission(ctx, path, t.workspace, t.permStore, t.permFn); err != nil {
+		return ErrorResult(err.Error())
+	}
+
 	if err := t.fs.WriteFile(path, []byte(content)); err != nil {
 		return ErrorResult(err.Error())
 	}
@@ -189,7 +264,10 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) *ToolR
 }
 
 type ListDirTool struct {
-	fs fileSystem
+	fs        fileSystem
+	workspace string
+	permStore *PermissionStore
+	permFn    PermissionFunc
 }
 
 func NewListDirTool(workspace string, restrict bool) *ListDirTool {
@@ -199,7 +277,12 @@ func NewListDirTool(workspace string, restrict bool) *ListDirTool {
 	} else {
 		fs = &hostFs{}
 	}
-	return &ListDirTool{fs: fs}
+	return &ListDirTool{fs: fs, workspace: workspace}
+}
+
+func (t *ListDirTool) SetPermission(store *PermissionStore, fn PermissionFunc) {
+	t.permStore = store
+	t.permFn = fn
 }
 
 func (t *ListDirTool) Name() string {
@@ -227,6 +310,10 @@ func (t *ListDirTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	path, ok := args["path"].(string)
 	if !ok {
 		path = "."
+	}
+
+	if err := checkFilePermission(ctx, path, t.workspace, t.permStore, t.permFn); err != nil {
+		return ErrorResult(err.Error())
 	}
 
 	entries, err := t.fs.ReadDir(path)

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -434,4 +435,170 @@ func TestEditFileTool_Restricted_FileNotFound(t *testing.T) {
 	result := tool.Execute(ctx, args)
 	assert.True(t, result.IsError)
 	assert.Contains(t, result.ForLLM, "not found")
+}
+
+// --- Permission (PermissibleTool) tests for edit tools ---
+
+// Compile-time checks that edit tools implement PermissibleTool.
+var (
+	_ PermissibleTool = (*EditFileTool)(nil)
+	_ PermissibleTool = (*AppendFileTool)(nil)
+)
+
+func TestEditFileTool_Permission_DeniedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "edit_denied.txt")
+	os.WriteFile(outsideFile, []byte("Hello World"), 0o644)
+
+	tool := NewEditFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":     outsideFile,
+		"old_text": "World",
+		"new_text": "Universe",
+	})
+
+	assert.True(t, result.IsError, "Expected permission denied for edit outside workspace")
+	assert.Contains(t, result.ForLLM, "permission denied")
+
+	// File should be unchanged
+	data, _ := os.ReadFile(outsideFile)
+	assert.Equal(t, "Hello World", string(data))
+}
+
+func TestEditFileTool_Permission_ApprovedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "edit_allowed.txt")
+	os.WriteFile(outsideFile, []byte("Hello World"), 0o644)
+
+	tool := NewEditFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return true, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":     outsideFile,
+		"old_text": "World",
+		"new_text": "Universe",
+	})
+
+	assert.False(t, result.IsError, "Expected success after approval, got: %s", result.ForLLM)
+
+	data, _ := os.ReadFile(outsideFile)
+	assert.Equal(t, "Hello Universe", string(data))
+}
+
+func TestEditFileTool_Permission_InsideWorkspaceNoCheck(t *testing.T) {
+	workspace := t.TempDir()
+	insideFile := filepath.Join(workspace, "inside_edit.txt")
+	os.WriteFile(insideFile, []byte("Hello World"), 0o644)
+
+	permFnCalled := false
+	tool := NewEditFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		permFnCalled = true
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":     insideFile,
+		"old_text": "World",
+		"new_text": "Universe",
+	})
+
+	assert.False(t, result.IsError, "Expected success for path inside workspace, got: %s", result.ForLLM)
+	assert.False(t, permFnCalled, "PermissionFunc should not be called for paths inside workspace")
+}
+
+func TestEditFileTool_Permission_ErrorFromPermFunc(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "edit_error.txt")
+	os.WriteFile(outsideFile, []byte("content"), 0o644)
+
+	tool := NewEditFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, fmt.Errorf("timeout waiting for user")
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":     outsideFile,
+		"old_text": "content",
+		"new_text": "new",
+	})
+
+	assert.True(t, result.IsError)
+	assert.Contains(t, result.ForLLM, "timeout waiting for user")
+}
+
+func TestAppendFileTool_Permission_DeniedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "append_denied.txt")
+	os.WriteFile(outsideFile, []byte("original"), 0o644)
+
+	tool := NewAppendFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":    outsideFile,
+		"content": " appended",
+	})
+
+	assert.True(t, result.IsError, "Expected permission denied for append outside workspace")
+	assert.Contains(t, result.ForLLM, "permission denied")
+
+	// File should be unchanged
+	data, _ := os.ReadFile(outsideFile)
+	assert.Equal(t, "original", string(data))
+}
+
+func TestAppendFileTool_Permission_ApprovedOutsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "append_allowed.txt")
+	os.WriteFile(outsideFile, []byte("original"), 0o644)
+
+	tool := NewAppendFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		return true, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":    outsideFile,
+		"content": " appended",
+	})
+
+	assert.False(t, result.IsError, "Expected success after approval, got: %s", result.ForLLM)
+
+	data, _ := os.ReadFile(outsideFile)
+	assert.Equal(t, "original appended", string(data))
+}
+
+func TestAppendFileTool_Permission_InsideWorkspaceNoCheck(t *testing.T) {
+	workspace := t.TempDir()
+	insideFile := filepath.Join(workspace, "inside_append.txt")
+	os.WriteFile(insideFile, []byte("original"), 0o644)
+
+	permFnCalled := false
+	tool := NewAppendFileTool(workspace, false)
+	tool.SetPermission(NewPermissionStore(), func(ctx context.Context, path string) (bool, error) {
+		permFnCalled = true
+		return false, nil
+	})
+
+	result := tool.Execute(context.Background(), map[string]any{
+		"path":    insideFile,
+		"content": " appended",
+	})
+
+	assert.False(t, result.IsError, "Expected success for path inside workspace, got: %s", result.ForLLM)
+	assert.False(t, permFnCalled, "PermissionFunc should not be called for paths inside workspace")
 }
