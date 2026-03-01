@@ -79,6 +79,7 @@ type Manager struct {
 	bus           *bus.MessageBus
 	config        *config.Config
 	mediaStore    media.MediaStore
+	transcriber   VoiceTranscriber
 	dispatchTask  *asyncTask
 	mux           *http.ServeMux
 	httpServer    *http.Server
@@ -195,6 +196,12 @@ func (m *Manager) initChannel(name, displayName string) {
 		// Inject owner reference so BaseChannel.HandleMessage can auto-trigger typing/reaction
 		if setter, ok := ch.(interface{ SetOwner(ch Channel) }); ok {
 			setter.SetOwner(ch)
+		}
+		// Inject VoiceTranscriber if one is configured
+		if m.transcriber != nil {
+			if setter, ok := ch.(interface{ SetTranscriber(VoiceTranscriber) }); ok {
+				setter.SetTranscriber(m.transcriber)
+			}
 		}
 		m.channels[name] = ch
 		logger.InfoCF("channels", "Channel enabled successfully", map[string]any{
@@ -747,6 +754,18 @@ func (m *Manager) GetChannel(name string) (Channel, bool) {
 	defer m.mu.RUnlock()
 	channel, ok := m.channels[name]
 	return channel, ok
+}
+
+// SetTranscriber sets the voice transcriber on the manager and all existing channels.
+func (m *Manager) SetTranscriber(t VoiceTranscriber) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.transcriber = t
+	for _, ch := range m.channels {
+		if setter, ok := ch.(interface{ SetTranscriber(VoiceTranscriber) }); ok {
+			setter.SetTranscriber(t)
+		}
+	}
 }
 
 func (m *Manager) GetStatus() map[string]any {

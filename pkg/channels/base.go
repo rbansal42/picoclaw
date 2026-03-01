@@ -17,6 +17,13 @@ import (
 	"github.com/sipeed/picoclaw/pkg/media"
 )
 
+// VoiceTranscriber transcribes audio files to text.
+// Implementations must be safe for concurrent use.
+type VoiceTranscriber interface {
+	TranscribeText(ctx context.Context, audioFilePath string) (text string, err error)
+	IsAvailable() bool
+}
+
 var (
 	uniqueIDCounter uint64
 	uniqueIDPrefix  string
@@ -90,6 +97,7 @@ type BaseChannel struct {
 	placeholderRecorder PlaceholderRecorder
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
+	transcriber         VoiceTranscriber
 }
 
 func NewBaseChannel(
@@ -326,6 +334,12 @@ func (c *BaseChannel) GetPlaceholderRecorder() PlaceholderRecorder {
 func (c *BaseChannel) SetOwner(ch Channel) {
 	c.owner = ch
 }
+
+// SetTranscriber injects a VoiceTranscriber into the channel.
+func (c *BaseChannel) SetTranscriber(t VoiceTranscriber) { c.transcriber = t }
+
+// GetTranscriber returns the injected VoiceTranscriber (may be nil).
+func (c *BaseChannel) GetTranscriber() VoiceTranscriber { return c.transcriber }
 
 // BuildMediaScope constructs a scope key for media lifecycle tracking.
 func BuildMediaScope(channel, chatID, messageID string) string {

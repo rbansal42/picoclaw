@@ -152,6 +152,16 @@ func (t *GroqTranscriber) Transcribe(ctx context.Context, audioFilePath string) 
 	return &result, nil
 }
 
+// TranscribeText transcribes the audio file and returns just the text.
+// This method satisfies the channels.VoiceTranscriber interface.
+func (t *GroqTranscriber) TranscribeText(ctx context.Context, audioFilePath string) (string, error) {
+	resp, err := t.Transcribe(ctx, audioFilePath)
+	if err != nil {
+		return "", err
+	}
+	return resp.Text, nil
+}
+
 func (t *GroqTranscriber) IsAvailable() bool {
 	available := t.apiKey != ""
 	logger.DebugCF("voice", "Checking transcriber availability", map[string]any{"available": available})
