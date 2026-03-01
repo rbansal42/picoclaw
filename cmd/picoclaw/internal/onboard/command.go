@@ -15,8 +15,8 @@ func NewOnboardCommand() *cobra.Command {
 		Use:     "onboard",
 		Aliases: []string{"o"},
 		Short:   "Initialize picoclaw configuration and workspace",
-		Run: func(cmd *cobra.Command, args []string) {
-			onboard()
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return onboard()
 		},
 	}
 

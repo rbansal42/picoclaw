@@ -18,8 +18,8 @@ func TestNewOnboardCommand(t *testing.T) {
 	assert.Len(t, cmd.Aliases, 1)
 	assert.True(t, cmd.HasAlias("o"))
 
-	assert.NotNil(t, cmd.Run)
-	assert.Nil(t, cmd.RunE)
+	assert.Nil(t, cmd.Run)
+	assert.NotNil(t, cmd.RunE)
 
 	assert.Nil(t, cmd.PersistentPreRun)
 	assert.Nil(t, cmd.PersistentPostRun)
