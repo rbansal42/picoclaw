@@ -40,13 +40,14 @@ var (
 
 type TelegramChannel struct {
 	*channels.BaseChannel
-	bot      *telego.Bot
-	bh       *telegohandler.BotHandler
-	commands TelegramCommander
-	config   *config.Config
-	chatIDs  map[string]int64
-	ctx      context.Context
-	cancel   context.CancelFunc
+	bot         *telego.Bot
+	bh          *telegohandler.BotHandler
+	commands    TelegramCommander
+	config      *config.Config
+	chatIDs     map[string]int64
+	permManager *channels.TelegramPermissionManager
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 func NewTelegramChannel(cfg *config.Config, bus *bus.MessageBus) (*TelegramChannel, error) {
@@ -93,6 +94,7 @@ func NewTelegramChannel(cfg *config.Config, bus *bus.MessageBus) (*TelegramChann
 		bot:         bot,
 		config:      cfg,
 		chatIDs:     make(map[string]int64),
+		permManager: channels.NewTelegramPermissionManager(bot),
 	}, nil
 }
 
@@ -136,6 +138,12 @@ func (c *TelegramChannel) Start(ctx context.Context) error {
 		return c.handleMessage(ctx, &message)
 	}, th.AnyMessage())
 
+	// Permission callback handler for inline keyboard responses
+	bh.HandleCallbackQuery(func(ctx *th.Context, query telego.CallbackQuery) error {
+		c.permManager.HandleCallback(c.ctx, query)
+		return nil
+	}, th.AnyCallbackQuery())
+
 	c.SetRunning(true)
 	logger.InfoCF("telegram", "Telegram bot connected", map[string]any{
 		"username": c.bot.Username(),
@@ -161,6 +169,11 @@ func (c *TelegramChannel) Stop(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// PermissionManager returns the Telegram permission manager for inline keyboard prompts.
+func (c *TelegramChannel) PermissionManager() *channels.TelegramPermissionManager {
+	return c.permManager
 }
 
 func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) error {
@@ -428,7 +441,19 @@ func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Mes
 			if content != "" {
 				content += "\n"
 			}
-			content += "[voice]"
+			// Attempt voice transcription if a transcriber is configured
+			if t := c.GetTranscriber(); t != nil && t.IsAvailable() {
+				if text, err := t.TranscribeText(ctx, voicePath); err == nil && text != "" {
+					content += text
+				} else {
+					if err != nil {
+						logger.WarnCF("telegram", "Voice transcription failed, falling back to [voice]", map[string]any{"error": err.Error()})
+					}
+					content += "[voice]"
+				}
+			} else {
+				content += "[voice]"
+			}
 		}
 	}
 
@@ -439,7 +464,19 @@ func (c *TelegramChannel) handleMessage(ctx context.Context, message *telego.Mes
 			if content != "" {
 				content += "\n"
 			}
-			content += "[audio]"
+			// Attempt audio transcription if a transcriber is configured
+			if t := c.GetTranscriber(); t != nil && t.IsAvailable() {
+				if text, err := t.TranscribeText(ctx, audioPath); err == nil && text != "" {
+					content += text
+				} else {
+					if err != nil {
+						logger.WarnCF("telegram", "Audio transcription failed, falling back to [audio]", map[string]any{"error": err.Error()})
+					}
+					content += "[audio]"
+				}
+			} else {
+				content += "[audio]"
+			}
 		}
 	}
 

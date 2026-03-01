@@ -22,7 +22,7 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/pico"
 	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
 	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
-	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
+	tgchannel "github.com/sipeed/picoclaw/pkg/channels/telegram"
 	_ "github.com/sipeed/picoclaw/pkg/channels/wecom"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
@@ -36,6 +36,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/state"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/voice"
 )
 
 func gatewayCmd(debug bool) error {
@@ -130,6 +131,13 @@ func gatewayCmd(debug bool) error {
 		return fmt.Errorf("error creating channel manager: %w", err)
 	}
 
+	// Setup voice transcription if Groq API key is configured
+	if cfg.Providers.Groq.APIKey != "" {
+		transcriber := voice.NewGroqTranscriber(cfg.Providers.Groq.APIKey)
+		channelManager.SetTranscriber(transcriber)
+		logger.InfoC("gateway", "Voice transcription enabled (Groq STT)")
+	}
+
 	// Inject channel manager and media store into agent loop
 	agentLoop.SetChannelManager(channelManager)
 	agentLoop.SetMediaStore(mediaStore)
@@ -177,6 +185,20 @@ func gatewayCmd(debug bool) error {
 	if err := channelManager.StartAll(ctx); err != nil {
 		fmt.Printf("Error starting channels: %v\n", err)
 		return err
+	}
+
+	// Wire permission factory for outside-workspace access prompts
+	if ch, ok := channelManager.GetChannel("telegram"); ok {
+		if tg, ok := ch.(*tgchannel.TelegramChannel); ok {
+			pm := tg.PermissionManager()
+			agentLoop.SetPermissionFuncFactory(func(channel, chatID string) tools.PermissionFunc {
+				if channel == "telegram" {
+					return pm.NewPermissionFunc(chatID)
+				}
+				return nil
+			})
+			logger.InfoC("gateway", "Permission factory wired for Telegram")
+		}
 	}
 
 	fmt.Printf("✓ Health endpoints available at http://%s:%d/health and /ready\n", cfg.Gateway.Host, cfg.Gateway.Port)
