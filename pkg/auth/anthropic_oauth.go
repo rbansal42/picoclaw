@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -442,4 +444,18 @@ func IsAnthropicMaxOAuth(cred *AuthCredential) bool {
 		cred.AuthMethod == "oauth" &&
 		cred.APIKey == "" &&
 		(cred.SubscriptionType == "max" || cred.SubscriptionType == "pro")
+}
+
+// openBrowser opens the given URL in the default browser
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "linux":
+		return exec.Command("xdg-open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		return exec.Command("open", url).Start()
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
 }

@@ -163,7 +163,7 @@ Auth files should be `0600`. Config files should be `0644`.
 ## Git Workflow
 
 ### Remotes
-- `origin` — `https://github.com/rahul-hudle/picoclaw` (our fork, push here)
+- `origin` — `git@github.com:rbansal42/picoclaw.git` (our fork, push here)
 - `upstream` — `https://github.com/sipeed/picoclaw.git` (original repo, fetch only)
 
 ### Atomic Commits

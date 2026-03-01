@@ -10,14 +10,14 @@ build/
 *.out
 /picoclaw
 /picoclaw-test
-cmd/picoclaw/workspace
+cmd/**/workspace
 
 # Picoclaw specific
 
 # PicoClaw
 .picoclaw/
 config.json
-sessions/
+/sessions/
 build/
 
 # Coverage
@@ -47,3 +47,6 @@ tasks/
 
 # Added by goreleaser init:
 dist/
+
+# Windows Application Icon/Resource
+*.syso
