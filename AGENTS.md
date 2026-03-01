@@ -22,27 +22,72 @@ go vet ./...
 make check
 ```
 
-**Build note**: `cmd/picoclaw/cmd_onboard.go` uses `//go:embed workspace` which requires
-a `workspace/` directory inside `cmd/picoclaw/`. The Makefile's `generate` target handles
-this. For quick manual builds: `cp -r workspace cmd/picoclaw/workspace && go build -tags stdjson -o /tmp/picoclaw ./cmd/picoclaw/ && rm -rf cmd/picoclaw/workspace`
+**Build note**: `cmd/picoclaw/internal/onboard/command.go` uses `//go:embed workspace` which requires
+a `workspace/` directory inside `cmd/picoclaw/internal/onboard/`. The Makefile's `generate` target handles
+this. For quick manual builds: `cp -r workspace cmd/picoclaw/internal/onboard/workspace && go build -tags stdjson -o /tmp/picoclaw ./cmd/picoclaw/ && rm -rf cmd/picoclaw/internal/onboard/workspace`
 
 ## Project Structure
 
 ```
-cmd/picoclaw/       CLI entrypoint — one cmd_*.go file per subcommand, dispatch via switch in main.go
+cmd/picoclaw/       CLI entrypoint — Cobra root command in main.go
+  internal/         Cobra subcommand packages
+    helpers.go      Shared utilities (Logo, GetConfigPath, LoadConfig, FormatVersion)
+    agent/          Agent interactive/non-interactive mode
+    auth/           Auth login/logout/status/models (with OAuth flows)
+    cron/           Cron job management (list/add/remove/enable/disable)
+    doctor/         Diagnostic checks (picoclaw doctor)
+    gateway/        Gateway server mode
+    migrate/        Config migration
+    onboard/        First-run setup
+    sessions/       Session management (list/show/delete/clear)
+    skills/         Skills management (list/install/remove/search)
+    status/         Status display
+    update/         Self-update
+    version/        Version display
+cmd/picoclaw-launcher/     Web UI launcher for config and gateway management
+cmd/picoclaw-launcher-tui/ Terminal UI launcher
 pkg/
   agent/            Core agent loop, context builder, memory, registry
-  auth/             Credential store (~/.picoclaw/auth.json), OAuth flows, PKCE
+  auth/             Credential store, OAuth flows (Anthropic, Google, OpenAI), PKCE
   bus/              In-process message bus (buffered channels)
-  channels/         Chat platform adapters (telegram, discord, slack, etc.)
+  channels/         Chat platform adapter interfaces and base implementation
+    telegram/       Telegram adapter
+    discord/        Discord adapter
+    slack/          Slack adapter
+    whatsapp/       WhatsApp bridge adapter
+    whatsapp_native/ WhatsApp native (no bridge) adapter
+    wecom/          WeCom bot and app adapters
+    feishu/         Feishu/Lark adapter
+    dingtalk/       DingTalk adapter
+    line/           LINE adapter
+    qq/             QQ adapter
+    onebot/         OneBot adapter
+    maixcam/        MaixCam adapter
+    pico/           Pico protocol adapter
   config/           JSON config + env var overlay (~/.picoclaw/config.json)
+  constants/        Shared constants
+  cron/             Cron job service
+  devices/          Device management (USB monitoring)
   doctor/           Diagnostic checks (picoclaw doctor)
-  logger/           Custom structured logger (no third-party lib)
+  fileutil/         Atomic file write utilities
+  health/           Health check HTTP server
+  heartbeat/        Heartbeat service
+  identity/         Unified user identity (platform:id format)
+  logger/           Custom structured logger
+  media/            Media file store with TTL cleanup
+  migrate/          Config migration framework
   providers/        LLM provider abstraction
     anthropic/      Anthropic SDK wrapper
     openai_compat/  OpenAI-compatible HTTP provider
+    protocoltypes/  Shared protocol types
+  routing/          Agent routing and session key management
   session/          Session persistence (~/.picoclaw/workspace/sessions/*.json)
+  skills/           Skills loader, installer, search cache
+  state/            Application state persistence
   tools/            Tool system — one file per tool (exec, web, edit, filesystem, etc.)
+  update/           Self-update mechanism
+  utils/            String utilities, HTTP retry helpers
+  voice/            Voice transcription (Groq STT)
 ```
 
 ## Code Style
@@ -107,7 +152,8 @@ logger.ErrorCF("agent", "LLM call failed", map[string]interface{}{
 Components are short strings: `"agent"`, `"tool"`, `"telegram"`, `"discord"`.
 
 ### Testing
-- Standard `testing` package — no testify assertions
+- `pkg/` tests use standard `testing` package with raw `if` + `t.Errorf` (no testify)
+- `cmd/picoclaw/` Cobra command tests use `testify/assert` and `testify/require`
 - Table-driven tests with `t.Run()` are the dominant pattern
 - Test variable: `tt` for table entries, `tests` for the slice
 - Mocks: in-file structs in `_test.go` or dedicated `mock_*_test.go` files
@@ -135,9 +181,9 @@ for _, tt := range tests {
 ```
 
 ### CLI Commands
-Commands are registered in `cmd/picoclaw/main.go` via a `switch` on `os.Args[1]`.
-Each command lives in its own `cmd_<name>.go` file with a `<name>Cmd()` function.
-Flag parsing is manual (`for i := 0; i < len(args); i++ { switch args[i] { ... } }`).
+Commands are registered in `cmd/picoclaw/main.go` via Cobra's `cmd.AddCommand()`.
+Each command is a package under `cmd/picoclaw/internal/<name>/` with a `NewXxxCommand() *cobra.Command` constructor in `command.go` and implementation in `helpers.go`.
+Flag parsing uses Cobra's `cmd.Flags().StringVarP()` / `cmd.Flags().BoolVarP()`.
 
 ### File I/O
 Atomic writes use temp-file + rename pattern (see `session/manager.go`, `state/state.go`).
@@ -201,10 +247,12 @@ git push origin main
 Do this before starting new work and whenever upstream has significant changes.
 
 ### Updating the CLI
-When adding or modifying commands, always update **all three** of these:
-1. **`cmd/picoclaw/cmd_<name>.go`** — the command implementation
-2. **`cmd/picoclaw/main.go`** — add the `case` in the `switch` block AND add to `printHelp()`
-3. **`AGENTS.md`** — update the Project Structure section if a new package was added
+When adding or modifying commands, always update **all five** of these:
+1. **`cmd/picoclaw/internal/<name>/command.go`** — the Cobra command definition
+2. **`cmd/picoclaw/internal/<name>/helpers.go`** — the command implementation
+3. **`cmd/picoclaw/main.go`** — add the `AddCommand()` call
+4. **`cmd/picoclaw/main_test.go`** — add the command name to `allowedCommands`
+5. **`AGENTS.md`** — update the Project Structure section if a new package was added
 
 ## CI Pipeline (`.github/workflows/pr.yml`)
 
