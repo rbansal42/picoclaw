@@ -18,6 +18,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/sipeed/picoclaw/pkg/update"
 )
 
 // spinnerGuard manages a spinner that can be stopped and restarted by the
@@ -54,6 +55,14 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 		logger.SetLevel(logger.DEBUG)
 		fmt.Println("🔍 Debug mode enabled")
 	}
+
+	// Check for updates in the background (non-blocking, at most once per 24h)
+	var updateHint string
+	go func() {
+		if v := update.CheckHint(internal.GetVersion()); v != "" {
+			updateHint = v
+		}
+	}()
 
 	cfg, err := internal.LoadConfig()
 	if err != nil {
@@ -111,11 +120,18 @@ func agentCmd(message, sessionKey, model string, debug bool) error {
 			return fmt.Errorf("error processing message: %w", err)
 		}
 		fmt.Printf("\n%s %s\n", internal.Logo, response)
+		if updateHint != "" {
+			fmt.Fprintf(os.Stderr, "\nA new version (%s) is available. Run 'picoclaw update' to upgrade.\n", updateHint)
+		}
 		return nil
 	}
 
 	fmt.Printf("%s Interactive mode (Ctrl+C to exit)\n\n", internal.Logo)
 	interactiveMode(agentLoop, sessionKey, sg)
+
+	if updateHint != "" {
+		fmt.Fprintf(os.Stderr, "\nA new version (%s) is available. Run 'picoclaw update' to upgrade.\n", updateHint)
+	}
 
 	return nil
 }
