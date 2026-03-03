@@ -1453,6 +1453,35 @@ func (al *AgentLoop) handleCommand(ctx context.Context, msg bus.InboundMessage) 
 		default:
 			return fmt.Sprintf("Unknown switch target: %s", target), true
 		}
+
+	case "/new", "/clear":
+		route := al.registry.ResolveRoute(routing.RouteInput{
+			Channel:    msg.Channel,
+			AccountID:  msg.Metadata["account_id"],
+			Peer:       extractPeer(msg),
+			ParentPeer: extractParentPeer(msg),
+			GuildID:    msg.Metadata["guild_id"],
+			TeamID:     msg.Metadata["team_id"],
+		})
+
+		agent, ok := al.registry.GetAgent(route.AgentID)
+		if !ok {
+			agent = al.registry.GetDefaultAgent()
+		}
+		if agent == nil {
+			return "No agent available for this conversation", true
+		}
+
+		sessionKey := route.SessionKey
+		if msg.SessionKey != "" && strings.HasPrefix(msg.SessionKey, "agent:") {
+			sessionKey = msg.SessionKey
+		}
+
+		agent.Sessions.Save(sessionKey)
+		agent.Sessions.ResetSession(sessionKey)
+		agent.ContextBuilder.InvalidateCache()
+
+		return "Started a new conversation. Previous context has been cleared for this chat.", true
 	}
 
 	return "", false
